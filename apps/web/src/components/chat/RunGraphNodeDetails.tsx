@@ -15,13 +15,19 @@ import type { RunGraphNode } from "@t3tools/client-runtime/state/run-graph";
 import { Button } from "../ui/button";
 
 type ToolItem = ThreadStructureTurnItem & {
-  readonly type: "command_execution" | "dynamic_tool" | "file_search" | "web_search";
+  readonly type:
+    | "command_execution"
+    | "dynamic_tool"
+    | "file_change"
+    | "file_search"
+    | "web_search";
 };
 
 function isToolItem(item: ThreadStructureTurnItem): item is ToolItem {
   return (
     item.type === "command_execution" ||
     item.type === "dynamic_tool" ||
+    item.type === "file_change" ||
     item.type === "file_search" ||
     item.type === "web_search"
   );
@@ -57,6 +63,7 @@ function ToolInput({ item }: { readonly item: ToolItem }) {
       <p className="text-muted-foreground">No input.</p>
     );
   }
+  if (item.type === "file_change") return <p>{item.fileName}</p>;
   if (item.type === "file_search") return <p>{item.pattern || "File search"}</p>;
   return <p>{item.patterns?.join(", ") || "Web search"}</p>;
 }
@@ -114,6 +121,26 @@ function RunGraphItemDetails(props: {
     return (
       <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
         {props.item.failure.message || "Failure detail is unavailable."}
+      </div>
+    );
+  }
+  if (props.item.type === "file_change") {
+    return (
+      <div className="space-y-2 rounded-md border border-border/60 p-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-mono">{props.item.fileName}</span>
+          {props.item.additions !== undefined || props.item.deletions !== undefined ? (
+            <span>
+              <span className="text-diff-addition">+{props.item.additions ?? 0}</span>{" "}
+              <span className="text-diff-deletion">-{props.item.deletions ?? 0}</span>
+            </span>
+          ) : null}
+        </div>
+        {props.item.diffStr ? (
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words text-muted-foreground">
+            {props.item.diffStr}
+          </pre>
+        ) : null}
       </div>
     );
   }

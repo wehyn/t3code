@@ -132,6 +132,35 @@ function commandItem(
   };
 }
 
+function fileChangeItem(
+  id: string,
+  nodeId: NodeId,
+  overrides: Partial<Extract<OrchestrationV2TurnItem, { readonly type: "file_change" }>> = {},
+): Extract<OrchestrationV2TurnItem, { readonly type: "file_change" }> {
+  return {
+    type: "file_change",
+    id: TurnItemId.make(id),
+    threadId: THREAD_ID,
+    runId: RUN_ID,
+    nodeId,
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal: 1,
+    status: "completed",
+    title: null,
+    startedAt: NOW,
+    completedAt: NOW,
+    updatedAt: NOW,
+    fileName: "src/updated.ts",
+    additions: 3,
+    deletions: 1,
+    diffStr: "@@ -1 +1 @@",
+    ...overrides,
+  };
+}
+
 function failureItem(
   id: string,
   nodeId: NodeId,
@@ -264,11 +293,17 @@ function setProjection(next: ThreadStructure | null) {
   state.quietThread = next === null ? null : { environmentId: ENVIRONMENT_ID, projection: next };
 }
 
+function setup() {
+  state.quietThread = null;
+  state.detailResult = { data: undefined, isPending: false, error: null };
+}
+
 function view() {
   return <ThreadRunGraphSection {...SECTION_PROPS} />;
 }
 
 it("distinguishes a thread with no runs from a run with no recorded activity", async () => {
+  setup();
   setProjection(null);
   await using screen = await render(view());
   expect(screen.getByText("Loading run graph…")).toBeTruthy();
@@ -288,6 +323,7 @@ it("distinguishes a thread with no runs from a run with no recorded activity", a
 });
 
 it("shows graph counts and updates a late parent without moving its child", async () => {
+  setup();
   const toolId = NodeId.make("run-graph-tool");
   const parentId = NodeId.make("run-graph-late-parent");
   const tool = executionNode(toolId, { parentNodeId: parentId });
@@ -307,6 +343,7 @@ it("shows graph counts and updates a late parent without moving its child", asyn
   expect(screen.getByText("0 failed")).toBeTruthy();
   expect(screen.getByText("0 stopped")).toBeTruthy();
   expect(screen.getByText("Observed by T3")).toBeTruthy();
+  expect(screen.container.querySelector("[data-thread-run-graph]")).toBeTruthy();
   const child = screen.container.querySelector<HTMLElement>(
     '[role="listitem"][aria-label="pnpm test, Running"]',
   );
@@ -337,6 +374,7 @@ it("shows graph counts and updates a late parent without moving its child", asyn
 });
 
 it("selects the newest active run and reports pending requests", async () => {
+  setup();
   const approvalId = NodeId.make("run-graph-approval");
   const activeRunId = RunId.make("run-graph-active-run");
   const olderRun = run({ status: "completed", ordinal: 1 });
@@ -374,19 +412,12 @@ it("selects the newest active run and reports pending requests", async () => {
 });
 
 it("treats queued runs as active when choosing the run to show", async () => {
-  const olderRunId = RunId.make("run-graph-older-run");
+  setup();
   const queuedRunId = RunId.make("run-graph-queued-run");
-  const olderRootId = NodeId.make("run-graph-older-root");
   const queuedRootId = NodeId.make("run-graph-queued-root");
   setProjection(
     projection({
       runs: [
-        run({
-          id: olderRunId,
-          ordinal: 1,
-          rootNodeId: olderRootId,
-          status: "running",
-        }),
         run({
           id: queuedRunId,
           ordinal: 2,
@@ -395,11 +426,6 @@ it("treats queued runs as active when choosing the run to show", async () => {
         }),
       ],
       nodes: [
-        rootNode({
-          id: olderRootId,
-          runId: olderRunId,
-          rootNodeId: olderRootId,
-        }),
         rootNode({
           id: queuedRootId,
           runId: queuedRunId,
@@ -413,7 +439,130 @@ it("treats queued runs as active when choosing the run to show", async () => {
   expect(screen.getByText("Run 2")).toBeTruthy();
 });
 
+it("prefers a running run over a queued follow-up", async () => {
+  setup();
+  const runningRunId = RunId.make("run-graph-running-run");
+  const queuedRunId = RunId.make("run-graph-queued-follow-up");
+  const runningRootId = NodeId.make("run-graph-running-root");
+  const queuedRootId = NodeId.make("run-graph-queued-root");
+  setProjection(
+    projection({
+      runs: [
+        run({ id: runningRunId, ordinal: 1, rootNodeId: runningRootId, status: "running" }),
+        run({ id: queuedRunId, ordinal: 2, rootNodeId: queuedRootId, status: "queued" }),
+      ],
+      nodes: [
+        rootNode({ id: runningRootId, runId: runningRunId, rootNodeId: runningRootId }),
+        rootNode({ id: queuedRootId, runId: queuedRunId, rootNodeId: queuedRootId }),
+      ],
+    }),
+  );
+  await using screen = await render(view());
+
+  expect(screen.getByText("Run 1")).toBeTruthy();
+});
+
+it("uses the earlier completed run when the latest run was rolled back", async () => {
+  setup();
+  const completedRootId = NodeId.make("run-graph-completed-root");
+  const rolledBackRunId = RunId.make("run-graph-rolled-back-run");
+  const rolledBackRootId = NodeId.make("run-graph-rolled-back-root");
+  setProjection(
+    projection({
+      runs: [
+        run({ ordinal: 1, rootNodeId: completedRootId, status: "completed" }),
+        run({
+          id: rolledBackRunId,
+          ordinal: 2,
+          rootNodeId: rolledBackRootId,
+          status: "rolled_back",
+        }),
+      ],
+      nodes: [
+        rootNode({ id: completedRootId, rootNodeId: completedRootId, status: "completed" }),
+        rootNode({
+          id: rolledBackRootId,
+          runId: rolledBackRunId,
+          rootNodeId: rolledBackRootId,
+          status: "rolled_back",
+        }),
+      ],
+    }),
+  );
+  await using screen = await render(view());
+
+  expect(screen.getByText("Run 1")).toBeTruthy();
+
+  setProjection(
+    projection({
+      runs: [
+        run({
+          id: rolledBackRunId,
+          ordinal: 2,
+          rootNodeId: rolledBackRootId,
+          status: "rolled_back",
+        }),
+      ],
+      nodes: [
+        rootNode({
+          id: rolledBackRootId,
+          runId: rolledBackRunId,
+          rootNodeId: rolledBackRootId,
+          status: "rolled_back",
+        }),
+      ],
+    }),
+  );
+  await screen.rerender(view());
+  expect(screen.getByText("No runs yet.")).toBeTruthy();
+});
+
+it("resets node positions when the selected run changes in a mounted panel", async () => {
+  setup();
+  const firstRunId = RunId.make("run-graph-first-mounted-run");
+  const firstRootId = NodeId.make("run-graph-first-mounted-root");
+  const secondRunId = RunId.make("run-graph-second-mounted-run");
+  const secondRootId = NodeId.make("run-graph-second-mounted-root");
+  setProjection(
+    projection({
+      runs: [run({ id: firstRunId, ordinal: 1, rootNodeId: firstRootId })],
+      nodes: [rootNode({ id: firstRootId, runId: firstRunId, rootNodeId: firstRootId })],
+    }),
+  );
+  await using screen = await render(view());
+
+  setProjection(
+    projection({
+      runs: [
+        run({ id: firstRunId, ordinal: 1, rootNodeId: firstRootId, status: "completed" }),
+        run({ id: secondRunId, ordinal: 2, rootNodeId: secondRootId }),
+      ],
+      nodes: [
+        rootNode({
+          id: firstRootId,
+          runId: firstRunId,
+          rootNodeId: firstRootId,
+          status: "completed",
+        }),
+        rootNode({ id: secondRootId, runId: secondRunId, rootNodeId: secondRootId }),
+        executionNode(NodeId.make("run-graph-second-run-tool"), {
+          runId: secondRunId,
+          rootNodeId: secondRootId,
+          parentNodeId: secondRootId,
+        }),
+      ],
+    }),
+  );
+  await screen.rerender(view());
+
+  const root = screen.container.querySelector<HTMLElement>(
+    '[role="listitem"][aria-label="Main agent, Running"]',
+  );
+  expect(root?.getAttribute("data-run-graph-position")).toBe("16,16");
+});
+
 it("loads omitted tool output after keyboard selection", async () => {
+  setup();
   const toolId = NodeId.make("run-graph-detail-tool");
   const itemId = "run-graph-omitted-output";
   const projectedItem = commandItem(itemId, toolId, {
@@ -454,6 +603,7 @@ it("loads omitted tool output after keyboard selection", async () => {
 });
 
 it("keeps the graph usable when omitted tool detail cannot be loaded", async () => {
+  setup();
   const toolId = NodeId.make("run-graph-unavailable-tool");
   state.detailResult = {
     data: undefined,
@@ -485,6 +635,7 @@ it("keeps the graph usable when omitted tool detail cannot be loaded", async () 
 });
 
 it("shows a linked failure when selecting a tool node", async () => {
+  setup();
   const toolId = NodeId.make("run-graph-failed-tool");
   setProjection(
     projection({
@@ -505,6 +656,7 @@ it("shows a linked failure when selecting a tool node", async () => {
 });
 
 it("shows agent details and opens its child thread", async () => {
+  setup();
   const agentId = NodeId.make("run-graph-agent");
   const childThreadId = ThreadId.make("run-graph-child-thread");
   setProjection(
@@ -526,7 +678,27 @@ it("shows agent details and opens its child thread", async () => {
   expect(screen.router?.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/${childThreadId}`);
 });
 
+it("shows file edit counts and diff when selecting a file change", async () => {
+  setup();
+  const toolId = NodeId.make("run-graph-file-change-node");
+  setProjection(
+    projection({
+      runs: [run()],
+      nodes: [rootNode(), executionNode(toolId, { status: "completed" })],
+      turnItems: [fileChangeItem("run-graph-file-change-detail", toolId)],
+    }),
+  );
+  await using screen = await render(view());
+
+  await userEvent.click(screen.getByRole("button", { name: "src/updated.ts, Completed" }));
+
+  expect(screen.getByText("+3")).toBeTruthy();
+  expect(screen.getByText("-1")).toBeTruthy();
+  expect(screen.getByText("@@ -1 +1 @@")).toBeTruthy();
+});
+
 it("moves approval and question selection to the existing composer request UI", async () => {
+  setup();
   const approvalId = NodeId.make("run-graph-approval-node");
   const questionId = NodeId.make("run-graph-question-node");
   const requestUi = (

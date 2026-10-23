@@ -70,12 +70,17 @@ function latestRun(runs: ReadonlyArray<OrchestrationV2Run>): OrchestrationV2Run 
 }
 
 function selectRun(projection: ThreadProjection): OrchestrationV2Run | null {
-  const activeRuns = projection.runs.filter(
+  const availableRuns = projection.runs.filter((run) => run.status !== "rolled_back");
+  const activeRuns = availableRuns.filter(
     (run) =>
       RUN_STATUS_IS_ACTIVE[run.status] ||
       (run.status === "waiting" && hasActiveSignal(projection, run)),
   );
-  return latestRun(activeRuns) ?? latestRun(projection.runs);
+  return (
+    latestRun(activeRuns.filter((run) => run.status !== "queued")) ??
+    latestRun(activeRuns) ??
+    latestRun(availableRuns)
+  );
 }
 
 export function ThreadRunGraphSection(props: {
@@ -90,13 +95,14 @@ export function ThreadRunGraphSection(props: {
   const headingId = "thread-details-run-graph-heading";
 
   return (
-    <ThreadDetailsSection headingId={headingId} title="Run graph">
+    <ThreadDetailsSection headingId={headingId} title="Run graph" data-thread-run-graph>
       {graph === null || run === null || projection === null ? (
         <p className="px-1.5 pb-1 text-sm text-muted-foreground">
           {projection === null ? "Loading run graph…" : "No runs yet."}
         </p>
       ) : (
         <RunGraphView
+          key={`${props.environmentId}:${props.threadId}:${run.id}`}
           graph={graph}
           projection={projection}
           environmentId={props.environmentId}

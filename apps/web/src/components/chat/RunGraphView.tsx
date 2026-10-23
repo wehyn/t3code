@@ -207,7 +207,7 @@ export function RunGraphView(props: {
           No recorded tool or agent activity in this run.
         </p>
       ) : (
-        <div className="max-w-full overflow-x-auto overscroll-x-contain">
+        <div className="max-h-80 max-w-full overflow-auto overscroll-contain">
           <div
             className="relative"
             role="list"
