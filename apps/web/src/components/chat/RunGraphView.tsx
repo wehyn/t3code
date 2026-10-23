@@ -1,4 +1,8 @@
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { ThreadStructure } from "@t3tools/client-runtime/state/models";
+import { useNavigate } from "@tanstack/react-router";
 import * as DateTime from "effect/DateTime";
 import {
   BotIcon,
@@ -10,6 +14,8 @@ import {
   WrenchIcon,
 } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
+import { buildThreadRouteParams } from "../../threadRoutes";
+import { RunGraphNodeDetails } from "./RunGraphNodeDetails";
 
 import type {
   RunGraph,
@@ -121,8 +127,19 @@ function edgePath(from: NodePosition, to: NodePosition): string {
   return `M ${startX} ${startY} C ${startX} ${startY + direction * curve}, ${endX} ${endY - direction * curve}, ${endX} ${endY}`;
 }
 
+function focusPendingRequestUI() {
+  const requestPanel = document.querySelector<HTMLElement>(
+    '[data-chat-composer-top-drawer="true"]',
+  );
+  if (requestPanel === null) return;
+  requestPanel.scrollIntoView({ block: "nearest" });
+  requestPanel.querySelector<HTMLElement>('button, [tabindex="0"]')?.focus();
+}
+
 export function RunGraphView(props: {
   readonly graph: RunGraph;
+  readonly projection: ThreadStructure;
+  readonly environmentId: EnvironmentId;
   readonly runOrdinal: number;
   readonly empty: boolean;
 }) {
@@ -132,13 +149,14 @@ export function RunGraphView(props: {
   const elapsedRef = useRef<HTMLSpanElement>(null);
   const graphRef = useRef(props.graph);
   const arrowId = `run-graph-arrow-${useId().replaceAll(":", "")}`;
+  const [selectedNodeKey, setSelectedNodeKey] = useState<RunGraphNodeKey | null>(null);
+  const navigate = useNavigate();
   const isLive = props.graph.nodes.some(
     (node) => node.state === "call" || node.state === "needs_you",
   );
-
-  useLayoutEffect(() => {
-    setPositions((previous) => addMissingPositions(props.graph.nodes, props.graph.edges, previous));
-  }, [props.graph.nodes, props.graph.edges]);
+  const selectedNode = props.graph.nodes.find((node) => node.key === selectedNodeKey) ?? null;
+  const nextPositions = addMissingPositions(props.graph.nodes, props.graph.edges, positions);
+  if (nextPositions !== positions) setPositions(nextPositions);
 
   useLayoutEffect(() => {
     graphRef.current = props.graph;
@@ -154,7 +172,7 @@ export function RunGraphView(props: {
     if (!isLive) return;
     const timer = setInterval(update, 1_000);
     return () => clearInterval(timer);
-  }, [isLive, props.graph.summary.observedStartedAt, props.graph.summary.observedCompletedAt]);
+  }, [isLive]);
 
   const maxColumn = Math.max(0, ...[...positions.values()].map((position) => position.column));
   const maxRow = Math.max(0, ...[...positions.values()].map((position) => position.row));
@@ -240,32 +258,64 @@ export function RunGraphView(props: {
               const top = GRAPH_PADDING + position.row * (NODE_HEIGHT + ROW_GAP);
               const StatusIcon = stateIcon(node.state);
               const ActivityIcon = nodeIcon(node);
+              const isSelected = selectedNodeKey === node.key;
               return (
                 <article
                   key={node.key}
                   role="listitem"
                   aria-label={`${node.label}, ${node.statusLabel}`}
-                  className="absolute z-10 flex min-h-[5.5rem] w-[12.25rem] flex-col justify-center gap-2 rounded-xl border border-border bg-background px-3 py-2 shadow-sm"
+                  className="absolute z-10 min-h-[5.5rem] w-[12.25rem]"
                   style={{ left, top }}
                   data-run-graph-position={`${left},${top}`}
                 >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <ActivityIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 truncate text-sm font-medium">{node.label}</span>
-                  </div>
-                  <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                    <StatusIcon
-                      aria-hidden
-                      className={`size-3.5 shrink-0 ${STATE_CLASS[node.state]}`}
-                    />
-                    <span className="truncate">{node.statusLabel}</span>
-                  </div>
+                  <button
+                    type="button"
+                    aria-label={`${node.label}, ${node.statusLabel}`}
+                    aria-pressed={isSelected}
+                    onClick={() => {
+                      if (
+                        node.kind === "activity" &&
+                        (node.activityKind === "approval" || node.activityKind === "question")
+                      ) {
+                        setSelectedNodeKey(null);
+                        focusPendingRequestUI();
+                        return;
+                      }
+                      setSelectedNodeKey((current) => (current === node.key ? null : node.key));
+                    }}
+                    className={`flex h-full w-full flex-col justify-center gap-2 rounded-xl border bg-background px-3 py-2 text-left shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${isSelected ? "border-primary ring-1 ring-primary/40" : "border-border"}`}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <ActivityIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 truncate text-sm font-medium">{node.label}</span>
+                    </span>
+                    <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                      <StatusIcon
+                        aria-hidden
+                        className={`size-3.5 shrink-0 ${STATE_CLASS[node.state]}`}
+                      />
+                      <span className="truncate">{node.statusLabel}</span>
+                    </span>
+                  </button>
                 </article>
               );
             })}
           </div>
         </div>
       )}
+      {selectedNode ? (
+        <RunGraphNodeDetails
+          environmentId={props.environmentId}
+          projection={props.projection}
+          node={selectedNode}
+          onOpenChildThread={(threadId: ThreadId) => {
+            void navigate({
+              to: "/$environmentId/$threadId",
+              params: buildThreadRouteParams(scopeThreadRef(props.environmentId, threadId)),
+            });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

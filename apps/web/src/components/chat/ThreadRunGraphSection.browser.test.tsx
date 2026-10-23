@@ -3,6 +3,7 @@ import {
   MessageId,
   NodeId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   RunId,
   RuntimeRequestId,
@@ -11,6 +12,7 @@ import {
   type OrchestrationV2ExecutionNode,
   type OrchestrationV2Run,
   type OrchestrationV2RuntimeRequest,
+  type OrchestrationV2Subagent,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
@@ -19,14 +21,23 @@ import type {
   ThreadStructure,
 } from "@t3tools/client-runtime/state/models";
 import { expect, it, vi } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 import * as DateTime from "effect/DateTime";
 
-const state = vi.hoisted<{ quietThread: EnvironmentThreadStructure | null }>(() => ({
+const state = vi.hoisted<{
+  quietThread: EnvironmentThreadStructure | null;
+  detailResult: unknown;
+}>(() => ({
   quietThread: null,
+  detailResult: { data: undefined, isPending: false, error: null },
 }));
 
 vi.mock(import("../../state/entities"), () => ({
   useQuietThreadProjection: () => state.quietThread,
+}));
+
+vi.mock(import("../../state/queries"), () => ({
+  useTurnItemDetail: (() => state.detailResult) as never,
 }));
 
 import { render } from "../../../test/render";
@@ -121,13 +132,45 @@ function commandItem(
   };
 }
 
-function pendingRequest(nodeId: NodeId): OrchestrationV2RuntimeRequest {
+function failureItem(
+  id: string,
+  nodeId: NodeId,
+): Extract<OrchestrationV2TurnItem, { readonly type: "error" }> {
   return {
-    id: RuntimeRequestId.make("run-graph-request"),
+    type: "error",
+    id: TurnItemId.make(id),
+    threadId: THREAD_ID,
+    runId: RUN_ID,
+    nodeId,
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal: 2,
+    status: "failed",
+    title: null,
+    startedAt: NOW,
+    completedAt: NOW,
+    updatedAt: NOW,
+    failure: {
+      class: "provider_error",
+      message: "The tool provider rejected this call.",
+      code: null,
+      retryable: null,
+    },
+  };
+}
+
+function pendingRequest(
+  nodeId: NodeId,
+  kind: "command" | "user_input" = "command",
+): OrchestrationV2RuntimeRequest {
+  return {
+    id: RuntimeRequestId.make(`run-graph-request-${nodeId}`),
     nodeId,
     providerTurnId: null,
     nativeRequestRef: null,
-    kind: "command",
+    kind,
     status: "pending",
     responseCapability: { type: "message" },
     createdAt: NOW,
@@ -135,10 +178,35 @@ function pendingRequest(nodeId: NodeId): OrchestrationV2RuntimeRequest {
   };
 }
 
+function subagent(id: NodeId, childThreadId: ThreadId): OrchestrationV2Subagent {
+  return {
+    id,
+    threadId: THREAD_ID,
+    runId: RUN_ID,
+    parentNodeId: ROOT_ID,
+    origin: "app_owned",
+    createdBy: "agent",
+    driver: ProviderDriverKind.make("codex"),
+    providerInstanceId: PROVIDER_ID,
+    providerThreadId: null,
+    childThreadId,
+    nativeTaskRef: null,
+    prompt: "Inspect the failing tests",
+    title: "Test agent",
+    model: "gpt-5.4",
+    status: "running",
+    result: "Two tests need updates",
+    startedAt: NOW,
+    completedAt: null,
+    updatedAt: NOW,
+  };
+}
+
 function projection(
   input: {
     readonly runs?: ReadonlyArray<OrchestrationV2Run>;
     readonly nodes?: ReadonlyArray<OrchestrationV2ExecutionNode>;
+    readonly subagents?: ReadonlyArray<OrchestrationV2Subagent>;
     readonly turnItems?: ReadonlyArray<OrchestrationV2TurnItem>;
     readonly runtimeRequests?: ReadonlyArray<OrchestrationV2RuntimeRequest>;
   } = {},
@@ -155,7 +223,11 @@ function projection(
       branch: null,
       worktreePath: null,
       activeProviderThreadId: null,
-      lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: THREAD_ID },
+      lineage: {
+        parentThreadId: null,
+        relationshipToParent: null,
+        rootThreadId: THREAD_ID,
+      },
       forkedFrom: null,
       createdBy: "user",
       creationSource: "web",
@@ -170,7 +242,7 @@ function projection(
     runs: [...(input.runs ?? [])],
     attempts: [],
     nodes: [...(input.nodes ?? [])],
-    subagents: [],
+    subagents: [...(input.subagents ?? [])],
     providerSessions: [],
     providerThreads: [],
     providerTurns: [],
@@ -309,16 +381,207 @@ it("treats queued runs as active when choosing the run to show", async () => {
   setProjection(
     projection({
       runs: [
-        run({ id: olderRunId, ordinal: 1, rootNodeId: olderRootId, status: "running" }),
-        run({ id: queuedRunId, ordinal: 2, rootNodeId: queuedRootId, status: "queued" }),
+        run({
+          id: olderRunId,
+          ordinal: 1,
+          rootNodeId: olderRootId,
+          status: "running",
+        }),
+        run({
+          id: queuedRunId,
+          ordinal: 2,
+          rootNodeId: queuedRootId,
+          status: "queued",
+        }),
       ],
       nodes: [
-        rootNode({ id: olderRootId, runId: olderRunId, rootNodeId: olderRootId }),
-        rootNode({ id: queuedRootId, runId: queuedRunId, rootNodeId: queuedRootId }),
+        rootNode({
+          id: olderRootId,
+          runId: olderRunId,
+          rootNodeId: olderRootId,
+        }),
+        rootNode({
+          id: queuedRootId,
+          runId: queuedRunId,
+          rootNodeId: queuedRootId,
+        }),
       ],
     }),
   );
   await using screen = await render(view());
 
   expect(screen.getByText("Run 2")).toBeTruthy();
+});
+
+it("loads omitted tool output after keyboard selection", async () => {
+  const toolId = NodeId.make("run-graph-detail-tool");
+  const itemId = "run-graph-omitted-output";
+  const projectedItem = commandItem(itemId, toolId, {
+    input: "pnpm build",
+    outputOmitted: true,
+  });
+  state.detailResult = {
+    data: {
+      item: commandItem(itemId, toolId, {
+        input: "pnpm build",
+        output: "Fetched output from the selected tool",
+      }),
+    },
+    isPending: false,
+    error: null,
+  };
+  setProjection(
+    projection({
+      runs: [run()],
+      nodes: [rootNode(), executionNode(toolId)],
+      turnItems: [projectedItem],
+    }),
+  );
+  await using screen = await render(view());
+
+  expect(screen.container.textContent).not.toContain("Fetched output from the selected tool");
+  const toolButton = screen.container.querySelector<HTMLButtonElement>(
+    'button[aria-label="pnpm build, Running"]',
+  );
+  if (toolButton === null) throw new Error("Expected the tool node button");
+  toolButton.focus();
+  await userEvent.keyboard("{Enter}");
+
+  expect(screen.getByText("Fetched output from the selected tool")).toBeTruthy();
+  expect(
+    screen.getByRole("region", { name: "pnpm build details" }).getByText("pnpm build"),
+  ).toBeTruthy();
+});
+
+it("keeps the graph usable when omitted tool detail cannot be loaded", async () => {
+  const toolId = NodeId.make("run-graph-unavailable-tool");
+  state.detailResult = {
+    data: undefined,
+    isPending: false,
+    error: new Error("not found"),
+  };
+  setProjection(
+    projection({
+      runs: [run()],
+      nodes: [rootNode(), executionNode(toolId)],
+      turnItems: [
+        commandItem("run-graph-unavailable-item", toolId, {
+          input: "pnpm test",
+          outputOmitted: true,
+        }),
+      ],
+    }),
+  );
+  await using screen = await render(view());
+  const toolButton = screen.container.querySelector<HTMLButtonElement>(
+    'button[aria-label="pnpm test, Running"]',
+  );
+  if (toolButton === null) throw new Error("Expected the tool node button");
+  toolButton.focus();
+  await userEvent.keyboard("{Enter}");
+
+  expect(screen.getByText("Output detail is unavailable.")).toBeTruthy();
+  expect(screen.getByRole("list", { name: "Run 2 activity graph" })).toBeTruthy();
+});
+
+it("shows a linked failure when selecting a tool node", async () => {
+  const toolId = NodeId.make("run-graph-failed-tool");
+  setProjection(
+    projection({
+      runs: [run()],
+      nodes: [rootNode(), executionNode(toolId, { status: "failed" })],
+      turnItems: [failureItem("run-graph-tool-error", toolId)],
+    }),
+  );
+  await using screen = await render(view());
+
+  await userEvent.click(screen.getByRole("button", { name: "Tool call, Failed" }));
+
+  expect(
+    screen
+      .getByRole("region", { name: "Tool call details" })
+      .getByText("The tool provider rejected this call."),
+  ).toBeTruthy();
+});
+
+it("shows agent details and opens its child thread", async () => {
+  const agentId = NodeId.make("run-graph-agent");
+  const childThreadId = ThreadId.make("run-graph-child-thread");
+  setProjection(
+    projection({
+      runs: [run()],
+      nodes: [rootNode(), executionNode(agentId, { kind: "subagent", parentNodeId: ROOT_ID })],
+      subagents: [subagent(agentId, childThreadId)],
+    }),
+  );
+  await using screen = await render(view());
+
+  await userEvent.click(screen.getByRole("button", { name: "Test agent, Running" }));
+  expect(screen.getByText("Provider codex")).toBeTruthy();
+  expect(screen.getByText("Model gpt-5.4")).toBeTruthy();
+  expect(screen.getByText("Inspect the failing tests")).toBeTruthy();
+  expect(screen.getByText("Two tests need updates")).toBeTruthy();
+
+  await userEvent.click(screen.getByRole("button", { name: "Open child thread" }));
+  expect(screen.router?.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/${childThreadId}`);
+});
+
+it("moves approval and question selection to the existing composer request UI", async () => {
+  const approvalId = NodeId.make("run-graph-approval-node");
+  const questionId = NodeId.make("run-graph-question-node");
+  const requestUi = (
+    <div data-chat-composer-top-drawer="true">
+      <button type="button">Respond to current request</button>
+    </div>
+  );
+  setProjection(
+    projection({
+      runs: [run()],
+      nodes: [
+        rootNode(),
+        executionNode(approvalId, {
+          kind: "approval_request",
+          status: "waiting",
+        }),
+        executionNode(questionId, {
+          kind: "user_input_request",
+          status: "waiting",
+        }),
+      ],
+      runtimeRequests: [
+        pendingRequest(approvalId, "command"),
+        pendingRequest(questionId, "user_input"),
+      ],
+    }),
+  );
+  await using screen = await render(
+    <>
+      {requestUi}
+      {view()}
+    </>,
+  );
+  const drawer = screen.container.querySelector<HTMLElement>(
+    '[data-chat-composer-top-drawer="true"]',
+  );
+  if (drawer === null) throw new Error("Expected the composer request UI");
+  const respondButton = drawer.querySelector<HTMLButtonElement>("button");
+  if (respondButton === null) throw new Error("Expected a request action");
+  using _scrollIntoView = vi.spyOn(drawer, "scrollIntoView").mockImplementation(() => {});
+
+  const approvalButton = screen.container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Approval request, Needs you"]',
+  );
+  if (approvalButton === null) throw new Error("Expected the approval node button");
+  approvalButton.focus();
+  await userEvent.keyboard("{Enter}");
+  expect(drawer.scrollIntoView).toHaveBeenCalledOnce();
+  expect(document.activeElement).toBe(respondButton);
+  const questionButton = screen.container.querySelector<HTMLButtonElement>(
+    'button[aria-label="User input, Needs you"]',
+  );
+  if (questionButton === null) throw new Error("Expected the question node button");
+  questionButton.focus();
+  await userEvent.keyboard("{Enter}");
+  expect(drawer.scrollIntoView).toHaveBeenCalledTimes(2);
+  expect(document.activeElement).toBe(respondButton);
 });

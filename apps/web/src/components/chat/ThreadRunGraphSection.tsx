@@ -4,7 +4,6 @@ import type { ThreadStructure } from "@t3tools/client-runtime/state/models";
 
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { useMemo } from "react";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { useQuietThreadProjection } from "../../state/entities";
 import { RunGraphView } from "./RunGraphView";
@@ -85,22 +84,25 @@ export function ThreadRunGraphSection(props: {
 }) {
   const ref = scopeThreadRef(props.environmentId, props.threadId);
   const projection = useQuietThreadProjection(ref)?.projection ?? null;
-  const run = useMemo(() => (projection === null ? null : selectRun(projection)), [projection]);
-  const graph = useMemo(
-    () =>
-      run === null || projection === null ? null : deriveRunGraph({ projection, runId: run.id }),
-    [projection, run?.id],
-  );
+  const run = projection === null ? null : selectRun(projection);
+  const graph =
+    run === null || projection === null ? null : deriveRunGraph({ projection, runId: run.id });
   const headingId = "thread-details-run-graph-heading";
 
   return (
     <ThreadDetailsSection headingId={headingId} title="Run graph">
-      {graph === null || run === null ? (
+      {graph === null || run === null || projection === null ? (
         <p className="px-1.5 pb-1 text-sm text-muted-foreground">
           {projection === null ? "Loading run graph…" : "No runs yet."}
         </p>
       ) : (
-        <RunGraphView graph={graph} runOrdinal={run.ordinal} empty={graph.nodes.length === 1} />
+        <RunGraphView
+          graph={graph}
+          projection={projection}
+          environmentId={props.environmentId}
+          runOrdinal={run.ordinal}
+          empty={graph.nodes.length === 1}
+        />
       )}
     </ThreadDetailsSection>
   );
