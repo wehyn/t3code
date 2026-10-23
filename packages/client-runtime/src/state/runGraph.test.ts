@@ -258,6 +258,32 @@ describe("deriveRunGraph", () => {
     expect(result.summary.needsYouCount).toBe(1);
   });
 
+  it("counts only pending in-scope interactive requests", () => {
+    const approval = executionNode({
+      id: NodeId.make("run-graph-resolved-and-pending-approval"),
+      kind: "approval_request",
+      status: "waiting",
+    });
+    const pending = pendingRequest(approval.id);
+    const resolved = {
+      ...pendingRequest(approval.id),
+      id: RuntimeRequestId.make("run-graph-resolved-request"),
+      status: "resolved" as const,
+      resolvedAt: v2Now,
+    };
+
+    const result = graph({
+      nodes: [rootNode(), approval],
+      runtimeRequests: [resolved, pending],
+    });
+    const activity = result.nodes.find(
+      (node) => node.kind === "activity" && node.sourceNodeId === approval.id,
+    );
+
+    expect(result.summary.needsYouCount).toBe(1);
+    expect(activity?.kind === "activity" ? activity.runtimeRequestIds : []).toEqual([pending.id]);
+  });
+
   it("resolves a waiting run and root from its completed provider turn", () => {
     const completedAt = DateTime.makeUnsafe("2026-06-20T00:02:00.000Z");
     const providerTurn = {
@@ -378,6 +404,40 @@ describe("deriveRunGraph", () => {
       kind: "activity",
       turnItemIds: [firstItem.id, secondItem.id],
     });
+  });
+
+  it("labels a linked file change and counts it once as a tool call", () => {
+    const tool = executionNode({ id: NodeId.make("run-graph-file-change-tool") });
+    const item: Extract<OrchestrationV2TurnItem, { readonly type: "file_change" }> = {
+      type: "file_change",
+      id: TurnItemId.make("run-graph-file-change-item"),
+      threadId: THREAD_ID,
+      runId: RUN_ID,
+      nodeId: tool.id,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      ordinal: 1,
+      status: "completed",
+      title: null,
+      startedAt: v2Now,
+      completedAt: v2Now,
+      updatedAt: v2Now,
+      fileName: "src/example.ts",
+      additions: 4,
+      deletions: 2,
+      diffStr: "@@ -1 +1 @@",
+    };
+
+    const result = graph({ nodes: [rootNode(), tool], turnItems: [item] });
+
+    expect(result.nodes.find((node) => node.sourceNodeId === tool.id)).toMatchObject({
+      kind: "activity",
+      label: "src/example.ts",
+      turnItemIds: [item.id],
+    });
+    expect(result.summary.toolCallCount).toBe(1);
   });
 
   it("keeps a tool execution visible when its turn item is not in the projection", () => {

@@ -111,7 +111,12 @@ const REQUEST_KIND_IS_INTERACTIVE = {
 } as const satisfies Record<RuntimeRequestKind, boolean>;
 
 type ToolItem = ThreadStructureTurnItem & {
-  readonly type: "command_execution" | "dynamic_tool" | "file_search" | "web_search";
+  readonly type:
+    | "command_execution"
+    | "dynamic_tool"
+    | "file_change"
+    | "file_search"
+    | "web_search";
 };
 
 type ActivityExecutionNode = OrchestrationV2ExecutionNode & {
@@ -122,6 +127,7 @@ function isToolItem(item: ThreadStructureTurnItem): item is ToolItem {
   switch (item.type) {
     case "command_execution":
     case "dynamic_tool":
+    case "file_change":
     case "file_search":
     case "web_search":
       return true;
@@ -167,6 +173,8 @@ function toolLabel(item: ToolItem | undefined): string {
       return item.input.trim() || "Command";
     case "dynamic_tool":
       return item.toolName ?? "Tool call";
+    case "file_change":
+      return item.fileName;
     case "file_search":
       return item.pattern ?? "File search";
     case "web_search":
@@ -452,7 +460,7 @@ export function deriveRunGraph(input: {
       label: nodeLabel(node, toolItems),
       turnItemIds: linkedItems.map((item) => item.id),
       errorItemIds: errorsByNode.get(node.id) ?? [],
-      runtimeRequestIds: inScopeRequests.map((request) => request.id),
+      runtimeRequestIds: pendingRequests.map((request) => request.id),
       startedAt: node.startedAt ?? earliestTimestamp(linkedItems.map((item) => item.startedAt)),
       completedAt: node.completedAt ?? latestTimestamp(linkedItems.map((item) => item.completedAt)),
     });
