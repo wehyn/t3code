@@ -428,13 +428,17 @@ describe("deriveRunGraph", () => {
       additions: 4,
       deletions: 2,
       diffStr: "@@ -1 +1 @@",
+      changes: [
+        { operation: "write", path: "src/example.ts" },
+        { operation: "write", path: "src/another.ts" },
+      ],
     };
 
     const result = graph({ nodes: [rootNode(), tool], turnItems: [item] });
 
     expect(result.nodes.find((node) => node.sourceNodeId === tool.id)).toMatchObject({
       kind: "activity",
-      label: "src/example.ts",
+      label: "src/example.ts +1 more",
       turnItemIds: [item.id],
     });
     expect(result.summary.toolCallCount).toBe(1);
