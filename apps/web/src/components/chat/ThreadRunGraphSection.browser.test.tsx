@@ -727,10 +727,19 @@ it("shows file edit counts and changed paths when selecting a file change", asyn
   );
   await using screen = await render(view("/workspace/project"));
 
+  await expect
+    .element(screen.getByRole("listitem", { name: "project/src/updated.ts +1 more, Completed" }))
+    .toBeVisible();
   await userEvent.click(
     screen.getByRole("button", { name: "project/src/updated.ts +1 more, Completed" }),
   );
 
+  await expect
+    .element(screen.getByRole("heading", { name: "project/src/updated.ts +1 more" }))
+    .toBeVisible();
+  await expect
+    .element(screen.getByRole("region", { name: "project/src/updated.ts +1 more details" }))
+    .toBeVisible();
   expect(screen.getByText("+3")).toBeTruthy();
   expect(screen.getByText("-1")).toBeTruthy();
   expect(screen.getByText("write")).toBeTruthy();

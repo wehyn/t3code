@@ -1,7 +1,10 @@
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import type { ThreadStructure } from "@t3tools/client-runtime/state/models";
+import type { EnvironmentId, ThreadId, TurnItemId } from "@t3tools/contracts";
+import type {
+  ThreadStructure,
+  ThreadStructureTurnItem,
+} from "@t3tools/client-runtime/state/models";
 import { useNavigate } from "@tanstack/react-router";
 import * as DateTime from "effect/DateTime";
 import {
@@ -75,11 +78,12 @@ function addMissingPositions(
 
 function nodeLabel(
   node: RunGraphNode,
-  projection: ThreadStructure,
+  itemById: ReadonlyMap<TurnItemId, ThreadStructureTurnItem>,
   workspaceRoot: string | undefined,
 ): string {
   if (node.kind !== "activity") return node.label;
-  const item = projection.turnItems.find((candidate) => candidate.id === node.turnItemIds[0]);
+  const firstItemId = node.turnItemIds[0];
+  const item = firstItemId === undefined ? undefined : itemById.get(firstItemId);
   if (item?.type !== "file_change") return node.label;
 
   const rawPath = item.changes?.[0]?.path ?? item.fileName;
@@ -171,12 +175,15 @@ export function RunGraphView(props: {
   const arrowId = `run-graph-arrow-${useId().replaceAll(":", "")}`;
   const [selectedNodeKey, setSelectedNodeKey] = useState<RunGraphNodeKey | null>(null);
   const navigate = useNavigate();
+  const itemById = new Map(props.projection.turnItems.map((item) => [item.id, item]));
   const isLive = props.graph.nodes.some(
     (node) => node.state === "call" || node.state === "needs_you",
   );
   const selectedNode = props.graph.nodes.find((node) => node.key === selectedNodeKey) ?? null;
   const nextPositions = addMissingPositions(props.graph.nodes, props.graph.edges, positions);
   if (nextPositions !== positions) setPositions(nextPositions);
+  const selectedLabel =
+    selectedNode === null ? null : nodeLabel(selectedNode, itemById, props.workspaceRoot);
 
   useLayoutEffect(() => {
     graphRef.current = props.graph;
@@ -274,7 +281,7 @@ export function RunGraphView(props: {
             {props.graph.nodes.map((node) => {
               const position = positions.get(node.key);
               if (!position) return null;
-              const label = nodeLabel(node, props.projection, props.workspaceRoot);
+              const label = nodeLabel(node, itemById, props.workspaceRoot);
               const left = GRAPH_PADDING + position.column * (NODE_WIDTH + COLUMN_GAP);
               const top = GRAPH_PADDING + position.row * (NODE_HEIGHT + ROW_GAP);
               const StatusIcon = stateIcon(node.state);
@@ -329,6 +336,7 @@ export function RunGraphView(props: {
           environmentId={props.environmentId}
           projection={props.projection}
           node={selectedNode}
+          label={selectedLabel ?? selectedNode.label}
           onOpenChildThread={(threadId: ThreadId) => {
             void navigate({
               to: "/$environmentId/$threadId",

@@ -174,11 +174,7 @@ function toolLabel(item: ToolItem | undefined): string {
     case "dynamic_tool":
       return item.toolName ?? "Tool call";
     case "file_change": {
-      const changes = item.changes;
-      const firstPath = changes?.[0]?.path ?? item.fileName;
-      return changes !== undefined && changes.length > 1
-        ? `${firstPath} +${changes.length - 1} more`
-        : firstPath;
+      return item.changes?.[0]?.path ?? item.fileName;
     }
     case "file_search":
       return item.pattern ?? "File search";

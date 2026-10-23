@@ -159,6 +159,7 @@ export function RunGraphNodeDetails(props: {
   readonly environmentId: EnvironmentId;
   readonly projection: ThreadStructure;
   readonly node: RunGraphNode;
+  readonly label: string;
   readonly onOpenChildThread: (threadId: ThreadId) => void;
 }) {
   const itemById = new Map(props.projection.turnItems.map((item) => [item.id, item]));
@@ -174,12 +175,12 @@ export function RunGraphNodeDetails(props: {
 
   return (
     <section
-      aria-label={`${props.node.label} details`}
+      aria-label={`${props.label} details`}
       className="mx-1.5 mt-2 space-y-2 rounded-xl border border-border/65 bg-muted/15 p-3"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h4 className="truncate text-sm font-medium">{props.node.label}</h4>
+          <h4 className="truncate text-sm font-medium">{props.label}</h4>
           <p className="text-xs text-muted-foreground">{props.node.statusLabel}</p>
         </div>
         {childThreadId !== null ? (

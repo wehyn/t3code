@@ -438,7 +438,7 @@ describe("deriveRunGraph", () => {
 
     expect(result.nodes.find((node) => node.sourceNodeId === tool.id)).toMatchObject({
       kind: "activity",
-      label: "src/example.ts +1 more",
+      label: "src/example.ts",
       turnItemIds: [item.id],
     });
     expect(result.summary.toolCallCount).toBe(1);
