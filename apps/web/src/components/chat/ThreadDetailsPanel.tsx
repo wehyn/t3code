@@ -195,7 +195,11 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
           ) : null}
 
           {density === "full" && !props.draftId ? (
-            <ThreadRunGraphSection environmentId={props.environmentId} threadId={props.threadId} />
+            <ThreadRunGraphSection
+              environmentId={props.environmentId}
+              threadId={props.threadId}
+              workspaceRoot={props.gitCwd ?? undefined}
+            />
           ) : null}
         </>
       )}

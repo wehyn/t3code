@@ -14,6 +14,7 @@ import {
   WrenchIcon,
 } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
+import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { RunGraphNodeDetails } from "./RunGraphNodeDetails";
 
@@ -70,6 +71,24 @@ function addMissingPositions(
     next.set(node.key, { column, row });
   }
   return next.size === previous.size ? previous : next;
+}
+
+function nodeLabel(
+  node: RunGraphNode,
+  projection: ThreadStructure,
+  workspaceRoot: string | undefined,
+): string {
+  if (node.kind !== "activity") return node.label;
+  const item = projection.turnItems.find((candidate) => candidate.id === node.turnItemIds[0]);
+  if (item?.type !== "file_change") return node.label;
+
+  const rawPath = item.changes?.[0]?.path ?? item.fileName;
+  const path = formatWorkspaceRelativePath(rawPath, workspaceRoot);
+  const displayPath = workspaceRoot
+    ? path
+    : path.replaceAll("\\", "/").split("/").filter(Boolean).slice(-2).join("/");
+  const changeCount = item.changes?.length ?? 0;
+  return changeCount > 1 ? `${displayPath} +${changeCount - 1} more` : displayPath;
 }
 
 function stateIcon(state: RunGraphState) {
@@ -142,6 +161,7 @@ export function RunGraphView(props: {
   readonly environmentId: EnvironmentId;
   readonly runOrdinal: number;
   readonly empty: boolean;
+  readonly workspaceRoot?: string | undefined;
 }) {
   const [positions, setPositions] = useState(() =>
     addMissingPositions(props.graph.nodes, props.graph.edges, new Map()),
@@ -207,7 +227,7 @@ export function RunGraphView(props: {
           No recorded tool or agent activity in this run.
         </p>
       ) : (
-        <div className="max-h-80 max-w-full overflow-auto overscroll-contain">
+        <div className="max-h-80 max-w-full overflow-auto overscroll-x-contain">
           <div
             className="relative"
             role="list"
@@ -254,6 +274,7 @@ export function RunGraphView(props: {
             {props.graph.nodes.map((node) => {
               const position = positions.get(node.key);
               if (!position) return null;
+              const label = nodeLabel(node, props.projection, props.workspaceRoot);
               const left = GRAPH_PADDING + position.column * (NODE_WIDTH + COLUMN_GAP);
               const top = GRAPH_PADDING + position.row * (NODE_HEIGHT + ROW_GAP);
               const StatusIcon = stateIcon(node.state);
@@ -263,14 +284,14 @@ export function RunGraphView(props: {
                 <article
                   key={node.key}
                   role="listitem"
-                  aria-label={`${node.label}, ${node.statusLabel}`}
+                  aria-label={`${label}, ${node.statusLabel}`}
                   className="absolute z-10 min-h-[5.5rem] w-[12.25rem]"
                   style={{ left, top }}
                   data-run-graph-position={`${left},${top}`}
                 >
                   <button
                     type="button"
-                    aria-label={`${node.label}, ${node.statusLabel}`}
+                    aria-label={`${label}, ${node.statusLabel}`}
                     aria-pressed={isSelected}
                     onClick={() => {
                       if (
@@ -287,7 +308,7 @@ export function RunGraphView(props: {
                   >
                     <span className="flex min-w-0 items-center gap-2">
                       <ActivityIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 truncate text-sm font-medium">{node.label}</span>
+                      <span className="min-w-0 truncate text-sm font-medium">{label}</span>
                     </span>
                     <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                       <StatusIcon

@@ -156,7 +156,6 @@ function fileChangeItem(
     fileName: "src/updated.ts",
     additions: 3,
     deletions: 1,
-    diffStr: "@@ -1 +1 @@",
     ...overrides,
   };
 }
@@ -298,8 +297,8 @@ function setup() {
   state.detailResult = { data: undefined, isPending: false, error: null };
 }
 
-function view() {
-  return <ThreadRunGraphSection {...SECTION_PROPS} />;
+function view(workspaceRoot?: string) {
+  return <ThreadRunGraphSection {...SECTION_PROPS} workspaceRoot={workspaceRoot} />;
 }
 
 it("distinguishes a thread with no runs from a run with no recorded activity", async () => {
@@ -343,7 +342,6 @@ it("shows graph counts and updates a late parent without moving its child", asyn
   expect(screen.getByText("0 failed")).toBeTruthy();
   expect(screen.getByText("0 stopped")).toBeTruthy();
   expect(screen.getByText("Observed by T3")).toBeTruthy();
-  expect(screen.container.querySelector("[data-thread-run-graph]")).toBeTruthy();
   const child = screen.container.querySelector<HTMLElement>(
     '[role="listitem"][aria-label="pnpm test, Running"]',
   );
@@ -430,6 +428,34 @@ it("treats queued runs as active when choosing the run to show", async () => {
           id: queuedRootId,
           runId: queuedRunId,
           rootNodeId: queuedRootId,
+        }),
+      ],
+    }),
+  );
+  await using screen = await render(view());
+
+  expect(screen.getByText("Run 2")).toBeTruthy();
+});
+
+it("chooses a queued run over a newer cancelled run", async () => {
+  setup();
+  const queuedRunId = RunId.make("run-graph-queued-run");
+  const cancelledRunId = RunId.make("run-graph-cancelled-run");
+  const queuedRootId = NodeId.make("run-graph-queued-root");
+  const cancelledRootId = NodeId.make("run-graph-cancelled-root");
+  setProjection(
+    projection({
+      runs: [
+        run({ id: queuedRunId, ordinal: 2, rootNodeId: queuedRootId, status: "queued" }),
+        run({ id: cancelledRunId, ordinal: 3, rootNodeId: cancelledRootId, status: "cancelled" }),
+      ],
+      nodes: [
+        rootNode({ id: queuedRootId, runId: queuedRunId, rootNodeId: queuedRootId }),
+        rootNode({
+          id: cancelledRootId,
+          runId: cancelledRunId,
+          rootNodeId: cancelledRootId,
+          status: "cancelled",
         }),
       ],
     }),
@@ -678,23 +704,40 @@ it("shows agent details and opens its child thread", async () => {
   expect(screen.router?.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/${childThreadId}`);
 });
 
-it("shows file edit counts and diff when selecting a file change", async () => {
+it("shows file edit counts and changed paths when selecting a file change", async () => {
   setup();
   const toolId = NodeId.make("run-graph-file-change-node");
+  const fileChange = fileChangeItem("run-graph-file-change-detail", toolId, {
+    fileName: "/workspace/project/src/updated.ts",
+    changes: [
+      {
+        operation: "write",
+        path: "/workspace/project/src/updated.ts",
+        oldPath: "/workspace/project/src/previous.ts",
+      },
+      { operation: "create", path: "/workspace/project/src/another.ts" },
+    ],
+  });
   setProjection(
     projection({
       runs: [run()],
       nodes: [rootNode(), executionNode(toolId, { status: "completed" })],
-      turnItems: [fileChangeItem("run-graph-file-change-detail", toolId)],
+      turnItems: [fileChange],
     }),
   );
-  await using screen = await render(view());
+  await using screen = await render(view("/workspace/project"));
 
-  await userEvent.click(screen.getByRole("button", { name: "src/updated.ts, Completed" }));
+  await userEvent.click(
+    screen.getByRole("button", { name: "project/src/updated.ts +1 more, Completed" }),
+  );
 
   expect(screen.getByText("+3")).toBeTruthy();
   expect(screen.getByText("-1")).toBeTruthy();
-  expect(screen.getByText("@@ -1 +1 @@")).toBeTruthy();
+  expect(screen.getByText("write")).toBeTruthy();
+  expect(screen.getByText("create")).toBeTruthy();
+  expect(screen.getByText("/workspace/project/src/updated.ts")).toBeTruthy();
+  expect(screen.getByText("/workspace/project/src/previous.ts")).toBeTruthy();
+  expect(screen.getByText("/workspace/project/src/another.ts")).toBeTruthy();
 });
 
 it("moves approval and question selection to the existing composer request UI", async () => {

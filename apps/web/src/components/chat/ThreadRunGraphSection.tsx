@@ -86,6 +86,7 @@ function selectRun(projection: ThreadProjection): OrchestrationV2Run | null {
 export function ThreadRunGraphSection(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
+  readonly workspaceRoot?: string | undefined;
 }) {
   const ref = scopeThreadRef(props.environmentId, props.threadId);
   const projection = useQuietThreadProjection(ref)?.projection ?? null;
@@ -108,6 +109,7 @@ export function ThreadRunGraphSection(props: {
           environmentId={props.environmentId}
           runOrdinal={run.ordinal}
           empty={graph.nodes.length === 1}
+          workspaceRoot={props.workspaceRoot}
         />
       )}
     </ThreadDetailsSection>
