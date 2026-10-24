@@ -356,49 +356,7 @@ export default function ProjectScriptsControl({
         </ActionGroup>
       ) : scripts.length > 0 || importableScripts.length > 0 ? (
         isPanel ? (
-          <div
-            role="group"
-            aria-label="Project actions"
-            className={THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS}
-            ref={panelAnchorRef}
-          >
-            <ThreadDetailsControl
-              size="sm"
-              variant="ghost"
-              part="primary"
-              aria-label="Project actions"
-              onClick={() => setActionsMenuOpen({ presentation, scripts: false, imports: true })}
-            >
-              <WrenchIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} />
-              <span className={cn("min-w-0 truncate", THREAD_DETAILS_PANEL_LABEL_CLASS)}>
-                Actions
-              </span>
-            </ThreadDetailsControl>
-            <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
-            <Menu
-              highlightItemOnHover={false}
-              open={actionsMenuOpen.imports}
-              onOpenChange={(open) =>
-                setActionsMenuOpen({ presentation, scripts: false, imports: open })
-              }
-            >
-              <MenuTrigger
-                render={
-                  <ThreadDetailsControl
-                    size="sm"
-                    variant="ghost"
-                    part="secondary"
-                    aria-label="Choose project action"
-                  />
-                }
-              >
-                <ChevronDownIcon className={THREAD_DETAILS_PANEL_CHEVRON_CLASS} />
-              </MenuTrigger>
-              <MenuPopup align="end" anchor={panelAnchorRef} className="w-(--anchor-width)">
-                {scriptItems}
-              </MenuPopup>
-            </Menu>
-          </div>
+          null
         ) : (
           <Menu
             highlightItemOnHover={false}

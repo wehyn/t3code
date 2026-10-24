@@ -22,7 +22,8 @@ import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
-import { ThreadRunGraphSection } from "./ThreadRunGraphSection";
+import { Button } from "../ui/button";
+import { selectRunGraphCardState, useRunGraphCardStore } from "../../runGraphCardStore";
 
 const GitActionsControl = memo(BaseGitActionsControl);
 
@@ -70,6 +71,12 @@ export interface ThreadDetailsPanelProps extends Pick<
 }
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
+  const graphOpen = useRunGraphCardStore((state) =>
+    selectRunGraphCardState(state.byThreadKey, {
+      environmentId: props.environmentId,
+      threadId: props.threadId,
+    }).open,
+  );
   const fileScripts = useT3ProjectFileScripts(
     props.environmentId,
     props.activeProjectScripts ? props.gitCwd : null,
@@ -110,6 +117,23 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
     >
       {(density) => (
         <>
+          {!props.draftId && !graphOpen ? (
+            <div className="px-3 pt-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  useRunGraphCardStore.getState().open({
+                    environmentId: props.environmentId,
+                    threadId: props.threadId,
+                  })
+                }
+              >
+                Show run graph
+              </Button>
+            </div>
+          ) : null}
           <ThreadDetailsSection
             headingId="thread-details-workspace-heading"
             title="Workspace"
@@ -191,14 +215,6 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
             <ThreadRelationshipsPanel
               environmentId={props.environmentId}
               threadId={props.threadId}
-            />
-          ) : null}
-
-          {density === "full" && !props.draftId ? (
-            <ThreadRunGraphSection
-              environmentId={props.environmentId}
-              threadId={props.threadId}
-              workspaceRoot={props.gitCwd ?? undefined}
             />
           ) : null}
         </>

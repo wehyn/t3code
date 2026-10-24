@@ -93,7 +93,7 @@ export function ThreadDetailsCard({
       const next = element.offsetHeight + (frame ? frame.offsetHeight - frame.clientHeight : 0);
       // Keep detail sections out of the density estimate so they do not displace workspace controls.
       const lists = element.querySelectorAll<HTMLElement>(
-        "[data-thread-relationships-panel], [data-thread-details-pr-list], [data-thread-run-graph]",
+        "[data-thread-relationships-panel], [data-thread-details-pr-list]",
       );
       const fittingHeight =
         next - Array.from(lists).reduce((sum, list) => sum + list.offsetHeight, 0);

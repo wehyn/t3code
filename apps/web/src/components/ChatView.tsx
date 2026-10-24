@@ -277,6 +277,7 @@ import {
 } from "./chat/PanelLayoutControls";
 import type { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { ThreadDetailsPanel } from "./chat/ThreadDetailsPanel";
+import { ThreadRunGraphCardHost } from "./chat/ThreadRunGraphCardHost";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import {
   resolveEffectiveEnvMode,
@@ -3825,6 +3826,14 @@ export default function ChatView(props: ChatViewProps) {
               onUpdateProjectScript={updateProjectScriptStable}
               onDeleteProjectScript={deleteProjectScriptStable}
             />
+
+            {isServerThread && activeThread && !draftId ? (
+              <ThreadRunGraphCardHost
+                environmentId={activeThread.environmentId}
+                threadId={activeThread.id}
+                workspaceRoot={gitCwd ?? undefined}
+              />
+            ) : null}
 
             <PullRequestThreadDialogHost
               threadKey={activeThreadKey}
