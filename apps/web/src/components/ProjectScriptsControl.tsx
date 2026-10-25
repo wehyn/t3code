@@ -355,9 +355,7 @@ export default function ProjectScriptsControl({
           </Menu>
         </ActionGroup>
       ) : scripts.length > 0 || importableScripts.length > 0 ? (
-        isPanel ? (
-          null
-        ) : (
+        isPanel ? null : (
           <Menu
             highlightItemOnHover={false}
             open={actionsMenuOpen.imports}

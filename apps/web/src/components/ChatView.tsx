@@ -3208,6 +3208,14 @@ export default function ChatView(props: ChatViewProps) {
             onOpenThread={onOpenRelatedThreadStable}
             rightPanelOpen={inlineRightPanelOwnsTitleBar}
             onNewThreadInProject={handleNewThreadInActiveProjectStable}
+            rightActions={
+              isServerThread && activeThread && !draftId ? (
+                <ThreadRunGraphCardHost
+                  environmentId={activeThread.environmentId}
+                  threadId={activeThread.id}
+                />
+              ) : null
+            }
             {...(activeDraftLogicalProjectKey
               ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
               : {})}
@@ -3826,14 +3834,6 @@ export default function ChatView(props: ChatViewProps) {
               onUpdateProjectScript={updateProjectScriptStable}
               onDeleteProjectScript={deleteProjectScriptStable}
             />
-
-            {isServerThread && activeThread && !draftId ? (
-              <ThreadRunGraphCardHost
-                environmentId={activeThread.environmentId}
-                threadId={activeThread.id}
-                workspaceRoot={gitCwd ?? undefined}
-              />
-            ) : null}
 
             <PullRequestThreadDialogHost
               threadKey={activeThreadKey}

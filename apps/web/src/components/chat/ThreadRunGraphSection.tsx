@@ -1,117 +1,82 @@
-import { latestProviderTurnForAttempt, type OrchestrationV2Run } from "@t3tools/contracts";
 import { deriveRunGraph } from "@t3tools/client-runtime/state/run-graph";
-import type { ThreadStructure } from "@t3tools/client-runtime/state/models";
-
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { RunGraphCanvasPan, RunGraphCanvasView } from "../../runGraphCardStore";
+import { useRunGraphSelection, type RunGraphSelection } from "../../runGraphSelection";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
-import { useQuietThreadProjection } from "../../state/entities";
 import { RunGraphView } from "./RunGraphView";
 
-type ThreadProjection = ThreadStructure;
-type RuntimeRequestKind = ThreadProjection["runtimeRequests"][number]["kind"];
-
-const RUN_STATUS_IS_ACTIVE = {
-  preparing: true,
-  queued: true,
-  starting: true,
-  running: true,
-  waiting: false,
-  completed: false,
-  interrupted: false,
-  failed: false,
-  cancelled: false,
-  rolled_back: false,
-} as const satisfies Record<OrchestrationV2Run["status"], boolean>;
-
-const REQUEST_KIND_IS_INTERACTIVE = {
-  command: true,
-  "file-read": true,
-  "file-change": true,
-  "mcp-elicitation": true,
-  permission: true,
-  dynamic_tool_call: false,
-  user_input: true,
-  auth_refresh: false,
-} as const satisfies Record<RuntimeRequestKind, boolean>;
-
-function hasActiveSignal(projection: ThreadProjection, run: OrchestrationV2Run): boolean {
-  const runNodes = projection.nodes.filter((node) => node.runId === run.id);
-  const runNodeIds = new Set(runNodes.map((node) => node.id));
-  const nodeById = new Map(runNodes.map((node) => [node.id, node]));
-  const providerTurn = latestProviderTurnForAttempt(projection.providerTurns, run.activeAttemptId);
-  const activeProviderTurn =
-    providerTurn?.status === "pending" || providerTurn?.status === "running";
-  const activeChild = projection.subagents.some(
-    (subagent) =>
-      (subagent.runId === run.id || runNodeIds.has(subagent.parentNodeId)) &&
-      (subagent.status === "pending" ||
-        subagent.status === "running" ||
-        subagent.status === "waiting"),
-  );
-  const activeRequest = projection.runtimeRequests.some((request) => {
-    const node = nodeById.get(request.nodeId);
-    return (
-      node !== undefined &&
-      node.status !== "rolled_back" &&
-      (node.kind === "approval_request" || node.kind === "user_input_request") &&
-      request.status === "pending" &&
-      REQUEST_KIND_IS_INTERACTIVE[request.kind]
-    );
-  });
-  return activeProviderTurn || activeChild || activeRequest;
-}
-
-function latestRun(runs: ReadonlyArray<OrchestrationV2Run>): OrchestrationV2Run | null {
-  return runs.reduce<OrchestrationV2Run | null>(
-    (latest, run) => (latest === null || run.ordinal > latest.ordinal ? run : latest),
-    null,
-  );
-}
-
-function selectRun(projection: ThreadProjection): OrchestrationV2Run | null {
-  const availableRuns = projection.runs.filter((run) => run.status !== "rolled_back");
-  const activeRuns = availableRuns.filter(
-    (run) =>
-      RUN_STATUS_IS_ACTIVE[run.status] ||
-      (run.status === "waiting" && hasActiveSignal(projection, run)),
-  );
-  return (
-    latestRun(activeRuns.filter((run) => run.status !== "queued")) ??
-    latestRun(activeRuns) ??
-    latestRun(availableRuns)
-  );
-}
-
-export function ThreadRunGraphSection(props: {
+interface ThreadRunGraphSectionProps {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
-  readonly workspaceRoot?: string | undefined;
-}) {
-  const ref = scopeThreadRef(props.environmentId, props.threadId);
-  const projection = useQuietThreadProjection(ref)?.projection ?? null;
-  const run = projection === null ? null : selectRun(projection);
-  const graph =
-    run === null || projection === null ? null : deriveRunGraph({ projection, runId: run.id });
+  readonly selection?: RunGraphSelection | undefined;
+  readonly zoom?: number | undefined;
+  readonly pan?: RunGraphCanvasPan | null | undefined;
+  readonly onPanChange?: ((pan: RunGraphCanvasPan) => void) | undefined;
+  readonly onViewChange?: ((view: RunGraphCanvasView) => void) | undefined;
+  readonly seenSubagentKeys?: ReadonlyArray<string> | undefined;
+  readonly onSubagentsSeen?: ((keys: ReadonlyArray<string>) => void) | undefined;
+}
+
+function ThreadRunGraphSectionContent(
+  props: ThreadRunGraphSectionProps & {
+    readonly selection: RunGraphSelection;
+  },
+) {
+  const { selection } = props;
   const headingId = "thread-details-run-graph-heading";
 
-  return (
-    <ThreadDetailsSection headingId={headingId} title="Run graph" data-thread-run-graph>
-      {graph === null || run === null || projection === null ? (
+  if (selection.kind === "loading" || selection.kind === "empty") {
+    return (
+      <ThreadDetailsSection headingId={headingId} title="Run graph" data-thread-run-graph>
         <p className="px-1.5 pb-1 text-sm text-muted-foreground">
-          {projection === null ? "Loading run graph…" : "No runs yet."}
+          {selection.kind === "loading" ? "Loading run graph…" : "No runs yet."}
         </p>
-      ) : (
-        <RunGraphView
-          key={`${props.environmentId}:${props.threadId}:${run.id}`}
-          graph={graph}
-          projection={projection}
-          environmentId={props.environmentId}
-          runOrdinal={run.ordinal}
-          empty={graph.nodes.length === 1}
-          workspaceRoot={props.workspaceRoot}
-        />
-      )}
-    </ThreadDetailsSection>
+      </ThreadDetailsSection>
+    );
+  }
+
+  const { projection, run } = selection;
+  const graph = deriveRunGraph({ projection, runId: run.id });
+
+  return (
+    <section
+      aria-labelledby={headingId}
+      className="relative h-full min-h-0 min-w-0"
+      data-thread-run-graph
+    >
+      <h3
+        id={headingId}
+        className="pointer-events-none absolute top-3 left-3 z-10 text-2xs font-medium text-muted-foreground select-none"
+      >
+        Run graph
+      </h3>
+      <RunGraphView
+        key={`${props.environmentId}:${props.threadId}:${run.id}`}
+        graph={graph}
+        environmentId={props.environmentId}
+        runOrdinal={run.ordinal}
+        zoom={props.zoom ?? 1}
+        pan={props.pan ?? null}
+        onPanChange={props.onPanChange}
+        onViewChange={props.onViewChange}
+        seenSubagentKeys={props.seenSubagentKeys ?? []}
+        onSubagentsSeen={props.onSubagentsSeen}
+      />
+    </section>
+  );
+}
+
+function ThreadRunGraphSectionWithProjection(props: ThreadRunGraphSectionProps) {
+  const ref = scopeThreadRef(props.environmentId, props.threadId);
+  const selection = useRunGraphSelection(ref);
+  return <ThreadRunGraphSectionContent {...props} selection={selection} />;
+}
+
+export function ThreadRunGraphSection(props: ThreadRunGraphSectionProps) {
+  return props.selection === undefined ? (
+    <ThreadRunGraphSectionWithProjection {...props} />
+  ) : (
+    <ThreadRunGraphSectionContent {...props} selection={props.selection} />
   );
 }

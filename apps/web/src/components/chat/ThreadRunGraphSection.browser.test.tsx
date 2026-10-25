@@ -26,18 +26,13 @@ import * as DateTime from "effect/DateTime";
 
 const state = vi.hoisted<{
   quietThread: EnvironmentThreadStructure | null;
-  detailResult: unknown;
 }>(() => ({
   quietThread: null,
-  detailResult: { data: undefined, isPending: false, error: null },
 }));
 
 vi.mock(import("../../state/entities"), () => ({
   useQuietThreadProjection: () => state.quietThread,
-}));
-
-vi.mock(import("../../state/queries"), () => ({
-  useTurnItemDetail: (() => state.detailResult) as never,
+  useThreadRelationshipShells: () => [],
 }));
 
 import { render } from "../../../test/render";
@@ -129,63 +124,6 @@ function commandItem(
     updatedAt: NOW,
     input: "pnpm test",
     ...overrides,
-  };
-}
-
-function fileChangeItem(
-  id: string,
-  nodeId: NodeId,
-  overrides: Partial<Extract<OrchestrationV2TurnItem, { readonly type: "file_change" }>> = {},
-): Extract<OrchestrationV2TurnItem, { readonly type: "file_change" }> {
-  return {
-    type: "file_change",
-    id: TurnItemId.make(id),
-    threadId: THREAD_ID,
-    runId: RUN_ID,
-    nodeId,
-    providerThreadId: null,
-    providerTurnId: null,
-    nativeItemRef: null,
-    parentItemId: null,
-    ordinal: 1,
-    status: "completed",
-    title: null,
-    startedAt: NOW,
-    completedAt: NOW,
-    updatedAt: NOW,
-    fileName: "src/updated.ts",
-    additions: 3,
-    deletions: 1,
-    ...overrides,
-  };
-}
-
-function failureItem(
-  id: string,
-  nodeId: NodeId,
-): Extract<OrchestrationV2TurnItem, { readonly type: "error" }> {
-  return {
-    type: "error",
-    id: TurnItemId.make(id),
-    threadId: THREAD_ID,
-    runId: RUN_ID,
-    nodeId,
-    providerThreadId: null,
-    providerTurnId: null,
-    nativeItemRef: null,
-    parentItemId: null,
-    ordinal: 2,
-    status: "failed",
-    title: null,
-    startedAt: NOW,
-    completedAt: NOW,
-    updatedAt: NOW,
-    failure: {
-      class: "provider_error",
-      message: "The tool provider rejected this call.",
-      code: null,
-      retryable: null,
-    },
   };
 }
 
@@ -294,14 +232,13 @@ function setProjection(next: ThreadStructure | null) {
 
 function setup() {
   state.quietThread = null;
-  state.detailResult = { data: undefined, isPending: false, error: null };
 }
 
-function view(workspaceRoot?: string) {
-  return <ThreadRunGraphSection {...SECTION_PROPS} workspaceRoot={workspaceRoot} />;
+function view() {
+  return <ThreadRunGraphSection {...SECTION_PROPS} />;
 }
 
-it("distinguishes a thread with no runs from a run with no recorded activity", async () => {
+it("shows the main agent when a completed run has no subagents", async () => {
   setup();
   setProjection(null);
   await using screen = await render(view());
@@ -318,10 +255,10 @@ it("distinguishes a thread with no runs from a run with no recorded activity", a
     }),
   );
   await screen.rerender(view());
-  expect(screen.getByText("No recorded tool or agent activity in this run.")).toBeTruthy();
+  expect(screen.getByRole("listitem", { name: /^Main agent,/ })).toBeTruthy();
 });
 
-it("shows graph counts and updates a late parent without moving its child", async () => {
+it("keeps agent nodes visible and hides tool calls as subagents appear", async () => {
   setup();
   const toolId = NodeId.make("run-graph-tool");
   const parentId = NodeId.make("run-graph-late-parent");
@@ -332,23 +269,12 @@ it("shows graph counts and updates a late parent without moving its child", asyn
     turnItems: [commandItem("run-graph-command", toolId)],
   });
   setProjection(initial);
-  const container = document.createElement("div");
-  container.style.width = "280px";
-  await using screen = await render(view(), { container });
+  await using screen = await render(view());
 
-  expect(screen.getByText("Run 2")).toBeTruthy();
-  expect(screen.getByText("1 agent")).toBeTruthy();
-  expect(screen.getByText("1 tool call")).toBeTruthy();
-  expect(screen.getByText("0 failed")).toBeTruthy();
-  expect(screen.getByText("0 stopped")).toBeTruthy();
-  expect(screen.getByText("Observed by T3")).toBeTruthy();
-  const child = screen.container.querySelector<HTMLElement>(
-    '[role="listitem"][aria-label="pnpm test, Running"]',
-  );
-  if (child === null) throw new Error("Expected the tool node");
-  const childPosition = child.getAttribute("data-run-graph-position");
-  const viewport = child.parentElement?.parentElement;
-  expect(viewport && viewport.scrollWidth > viewport.clientWidth).toBe(true);
+  expect(screen.getByRole("listitem", { name: "Main agent, Running" })).toBeTruthy();
+  expect(
+    screen.container.querySelector('[role="listitem"][aria-label="pnpm test, Running"]'),
+  ).toBeNull();
 
   const lateParent = executionNode(parentId, {
     kind: "subagent",
@@ -363,12 +289,12 @@ it("shows graph counts and updates a late parent without moving its child", asyn
   );
   await screen.rerender(view());
 
-  const updatedChild = screen.container.querySelector<HTMLElement>(
-    '[role="listitem"][aria-label="pnpm test, Running"]',
-  );
-  expect(updatedChild?.getAttribute("data-run-graph-position")).toBe(childPosition);
+  expect(screen.getByRole("listitem", { name: "Main agent, Running" })).toBeTruthy();
   expect(screen.getByRole("listitem", { name: "Subagent, Running" })).toBeTruthy();
-  expect(screen.container.querySelectorAll('[role="list"] svg path[marker-end]')).toHaveLength(2);
+  expect(
+    screen.container.querySelector('[role="listitem"][aria-label="pnpm test, Running"]'),
+  ).toBeNull();
+  expect(screen.container.querySelectorAll('[role="list"] svg path[marker-end]')).toHaveLength(1);
 });
 
 it("selects the newest active run and reports pending requests", async () => {
@@ -587,100 +513,6 @@ it("resets node positions when the selected run changes in a mounted panel", asy
   expect(root?.getAttribute("data-run-graph-position")).toBe("16,16");
 });
 
-it("loads omitted tool output after keyboard selection", async () => {
-  setup();
-  const toolId = NodeId.make("run-graph-detail-tool");
-  const itemId = "run-graph-omitted-output";
-  const projectedItem = commandItem(itemId, toolId, {
-    input: "pnpm build",
-    outputOmitted: true,
-  });
-  state.detailResult = {
-    data: {
-      item: commandItem(itemId, toolId, {
-        input: "pnpm build",
-        output: "Fetched output from the selected tool",
-      }),
-    },
-    isPending: false,
-    error: null,
-  };
-  setProjection(
-    projection({
-      runs: [run()],
-      nodes: [rootNode(), executionNode(toolId)],
-      turnItems: [projectedItem],
-    }),
-  );
-  await using screen = await render(view());
-
-  expect(screen.container.textContent).not.toContain("Fetched output from the selected tool");
-  const toolButton = screen.container.querySelector<HTMLButtonElement>(
-    'button[aria-label="pnpm build, Running"]',
-  );
-  if (toolButton === null) throw new Error("Expected the tool node button");
-  toolButton.focus();
-  await userEvent.keyboard("{Enter}");
-
-  expect(screen.getByText("Fetched output from the selected tool")).toBeTruthy();
-  expect(
-    screen.getByRole("region", { name: "pnpm build details" }).getByText("pnpm build"),
-  ).toBeTruthy();
-});
-
-it("keeps the graph usable when omitted tool detail cannot be loaded", async () => {
-  setup();
-  const toolId = NodeId.make("run-graph-unavailable-tool");
-  state.detailResult = {
-    data: undefined,
-    isPending: false,
-    error: new Error("not found"),
-  };
-  setProjection(
-    projection({
-      runs: [run()],
-      nodes: [rootNode(), executionNode(toolId)],
-      turnItems: [
-        commandItem("run-graph-unavailable-item", toolId, {
-          input: "pnpm test",
-          outputOmitted: true,
-        }),
-      ],
-    }),
-  );
-  await using screen = await render(view());
-  const toolButton = screen.container.querySelector<HTMLButtonElement>(
-    'button[aria-label="pnpm test, Running"]',
-  );
-  if (toolButton === null) throw new Error("Expected the tool node button");
-  toolButton.focus();
-  await userEvent.keyboard("{Enter}");
-
-  expect(screen.getByText("Output detail is unavailable.")).toBeTruthy();
-  expect(screen.getByRole("list", { name: "Run 2 activity graph" })).toBeTruthy();
-});
-
-it("shows a linked failure when selecting a tool node", async () => {
-  setup();
-  const toolId = NodeId.make("run-graph-failed-tool");
-  setProjection(
-    projection({
-      runs: [run()],
-      nodes: [rootNode(), executionNode(toolId, { status: "failed" })],
-      turnItems: [failureItem("run-graph-tool-error", toolId)],
-    }),
-  );
-  await using screen = await render(view());
-
-  await userEvent.click(screen.getByRole("button", { name: "Tool call, Failed" }));
-
-  expect(
-    screen
-      .getByRole("region", { name: "Tool call details" })
-      .getByText("The tool provider rejected this call."),
-  ).toBeTruthy();
-});
-
 it("shows agent details and opens its child thread", async () => {
   setup();
   const agentId = NodeId.make("run-graph-agent");
@@ -702,51 +534,6 @@ it("shows agent details and opens its child thread", async () => {
 
   await userEvent.click(screen.getByRole("button", { name: "Open child thread" }));
   expect(screen.router?.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/${childThreadId}`);
-});
-
-it("shows file edit counts and changed paths when selecting a file change", async () => {
-  setup();
-  const toolId = NodeId.make("run-graph-file-change-node");
-  const fileChange = fileChangeItem("run-graph-file-change-detail", toolId, {
-    fileName: "/workspace/project/src/updated.ts",
-    changes: [
-      {
-        operation: "write",
-        path: "/workspace/project/src/updated.ts",
-        oldPath: "/workspace/project/src/previous.ts",
-      },
-      { operation: "create", path: "/workspace/project/src/another.ts" },
-    ],
-  });
-  setProjection(
-    projection({
-      runs: [run()],
-      nodes: [rootNode(), executionNode(toolId, { status: "completed" })],
-      turnItems: [fileChange],
-    }),
-  );
-  await using screen = await render(view("/workspace/project"));
-
-  await expect
-    .element(screen.getByRole("listitem", { name: "project/src/updated.ts +1 more, Completed" }))
-    .toBeVisible();
-  await userEvent.click(
-    screen.getByRole("button", { name: "project/src/updated.ts +1 more, Completed" }),
-  );
-
-  await expect
-    .element(screen.getByRole("heading", { name: "project/src/updated.ts +1 more" }))
-    .toBeVisible();
-  await expect
-    .element(screen.getByRole("region", { name: "project/src/updated.ts +1 more details" }))
-    .toBeVisible();
-  expect(screen.getByText("+3")).toBeTruthy();
-  expect(screen.getByText("-1")).toBeTruthy();
-  expect(screen.getByText("write")).toBeTruthy();
-  expect(screen.getByText("create")).toBeTruthy();
-  expect(screen.getByText("/workspace/project/src/updated.ts")).toBeTruthy();
-  expect(screen.getByText("/workspace/project/src/previous.ts")).toBeTruthy();
-  expect(screen.getByText("/workspace/project/src/another.ts")).toBeTruthy();
 });
 
 it("moves approval and question selection to the existing composer request UI", async () => {
