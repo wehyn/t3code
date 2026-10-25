@@ -1,33 +1,45 @@
 import type { ThreadId } from "@t3tools/contracts";
 import type { RunGraphNode } from "@t3tools/client-runtime/state/run-graph";
+import { XIcon } from "lucide-react";
 import { Button } from "../ui/button";
 
 export function RunGraphNodeDetails(props: {
   readonly node: Extract<RunGraphNode, { readonly kind: "agent" }>;
-  readonly label: string;
   readonly onOpenChildThread: (threadId: ThreadId) => void;
+  readonly onClose: () => void;
 }) {
   const childThreadId = props.node.childThreadId;
 
   return (
     <section
-      aria-label={`${props.label} details`}
-      className="mx-1.5 mt-2 space-y-2 rounded-xl border border-border/65 bg-muted/15 p-3"
+      aria-label={`${props.node.label} details`}
+      className="mx-1.5 space-y-2 rounded-xl border border-border/65 bg-muted/15 p-3"
     >
-      <div className="flex flex-wrap items-start justify-between gap-2">
+      <div className="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-2 bg-background">
         <div className="min-w-0">
-          <h4 className="truncate text-sm font-medium">{props.label}</h4>
+          <h4 className="truncate text-sm font-medium">{props.node.label}</h4>
           <p className="text-xs text-muted-foreground">{props.node.statusLabel}</p>
         </div>
-        {childThreadId !== null ? (
+        <div className="flex shrink-0 items-center gap-1">
+          {childThreadId !== null ? (
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => props.onOpenChildThread(childThreadId)}
+            >
+              Open child thread
+            </Button>
+          ) : null}
           <Button
-            size="xs"
-            variant="outline"
-            onClick={() => props.onOpenChildThread(childThreadId)}
+            type="button"
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Close agent details"
+            onClick={props.onClose}
           >
-            Open child thread
+            <XIcon aria-hidden="true" className="size-4" />
           </Button>
-        ) : null}
+        </div>
       </div>
 
       <div className="space-y-2 text-xs">

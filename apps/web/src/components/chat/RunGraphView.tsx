@@ -246,6 +246,7 @@ export function RunGraphView(props: {
   const [isPanning, setIsPanning] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  const selectedNodeButtonRef = useRef<HTMLButtonElement | null>(null);
   const panRef = useRef<RunGraphCanvasPan | null>(null);
   const lastZoomRef = useRef(props.zoom);
   const panChangeRef = useRef(props.onPanChange);
@@ -267,6 +268,7 @@ export function RunGraphView(props: {
   const selectedNode = graph.nodes.find((node) => node.key === selectedNodeKey) ?? null;
   const nextPositions = addMissingPositions(graph.nodes, graph.edges, positions);
   if (nextPositions !== positions) setPositions(nextPositions);
+  if (selectedNodeKey !== null && selectedNode === null) setSelectedNodeKey(null);
 
   useLayoutEffect(() => {
     panChangeRef.current = props.onPanChange;
@@ -500,6 +502,7 @@ export function RunGraphView(props: {
                   >
                     <button
                       type="button"
+                      ref={isSelected ? selectedNodeButtonRef : undefined}
                       aria-label={`${label}, ${statusLabel}`}
                       aria-pressed={isSelected}
                       onClick={() => {
@@ -548,15 +551,18 @@ export function RunGraphView(props: {
         </div>
       )}
       {selectedNode?.kind === "agent" ? (
-        <div className="absolute inset-x-2 bottom-2 z-20 max-h-[calc(100%-1rem)] overflow-y-auto rounded-xl bg-background/95 shadow-lg">
+        <div className="absolute inset-x-2 bottom-8 z-20 max-h-[50%] overflow-y-auto rounded-xl bg-background/95 shadow-lg">
           <RunGraphNodeDetails
             node={selectedNode}
-            label={selectedNode.label}
             onOpenChildThread={(threadId: ThreadId) => {
               void navigate({
                 to: "/$environmentId/$threadId",
                 params: buildThreadRouteParams(scopeThreadRef(props.environmentId, threadId)),
               });
+            }}
+            onClose={() => {
+              setSelectedNodeKey(null);
+              selectedNodeButtonRef.current?.focus({ preventScroll: true });
             }}
           />
         </div>
