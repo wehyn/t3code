@@ -303,6 +303,10 @@
       "types": "./src/state/threadExecution.ts",
       "default": "./src/state/threadExecution.ts"
     },
+    "./state/run-graph": {
+      "types": "./src/state/runGraph.ts",
+      "default": "./src/state/runGraph.ts"
+    },
     "./state/thread-requests": {
       "types": "./src/state/threadRequests.ts",
       "default": "./src/state/threadRequests.ts"

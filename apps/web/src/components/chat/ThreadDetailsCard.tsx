@@ -91,8 +91,7 @@ export function ThreadDetailsCard({
     const measure = () => {
       const frame = element.closest<HTMLElement>("[data-thread-details-card]");
       const next = element.offsetHeight + (frame ? frame.offsetHeight - frame.clientHeight : 0);
-      // PR lists and lineage scroll as they expand. Counting them toward density would hide
-      // the section and workspace controls when the user asks to see more rows.
+      // Keep detail sections out of the density estimate so they do not displace workspace controls.
       const lists = element.querySelectorAll<HTMLElement>(
         "[data-thread-relationships-panel], [data-thread-details-pr-list]",
       );
